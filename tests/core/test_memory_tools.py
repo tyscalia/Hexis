@@ -406,6 +406,30 @@ class TestGroupContextGating:
         assert "memory not found" in (group_result.error or "")
         assert solo_result.success is True
 
+    async def test_belief_history_group_still_opens_public(self, db_pool):
+        from core.tools.memory import BeliefHistoryHandler
+
+        marker = get_test_identifier("groupgate")
+        async with db_pool.acquire() as conn:
+            await _cleanup(db_pool, marker)
+            mem_id = await conn.fetchval(
+                """
+                INSERT INTO memories (type, content, importance, trust_level,
+                                      status, source_attribution)
+                VALUES ('worldview', $1, 0.5, 0.8, 'active',
+                        '{"kind": "conversation", "trust": 0.8}'::jsonb)
+                RETURNING id
+                """,
+                f"public belief {marker}",
+            )
+        try:
+            result = await BeliefHistoryHandler().execute(
+                {"memory_id": str(mem_id)}, _ctx(db_pool, is_group=True))
+        finally:
+            await _cleanup(db_pool, marker)
+
+        assert result.success is True
+
 
 class TestSourceDocumentTools:
     async def test_search_and_open_documents(self, db_pool):

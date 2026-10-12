@@ -403,17 +403,19 @@ async def test_open_memory_excludes_private_in_group_context(db_pool):
 
 async def test_open_memory_default_keeps_verbatim_grain(db_pool):
     """Legacy compat: no exclude_sensitive key keeps the old behavior —
-    the verbatim source unit behind a (any) memory still opens."""
+    fail-open on the default path, so even a PRIVATE memory's verbatim
+    source unit still opens (proves the gate cannot fire when the flag is
+    unset; the pre-fix behavior is unchanged)."""
     marker = get_test_identifier("sensitivity")
-    content = f"openable gist {marker}"
-    unit_text = f"verbatim openable source turn {marker}"
+    private_content = f"openable private gist {marker}"
+    unit_text = f"verbatim private source turn {marker}"
     async with db_pool.acquire() as conn:
         tr = conn.transaction()
         await tr.start()
         try:
             await _stub_get_embedding(conn)
-            mem_id = await _seed_memory(conn, content)
-            unit_id = await _seed_unit(conn, unit_text)
+            mem_id = await _seed_memory(conn, private_content, sensitivity="private")
+            unit_id = await _seed_unit(conn, unit_text, sensitivity="private")
             await conn.execute(
                 "INSERT INTO memory_source_units (memory_id, subconscious_unit_id)"
                 " VALUES ($1, $2)",
@@ -453,3 +455,28 @@ async def test_belief_history_excludes_private_in_group_context(db_pool):
 
     assert group["success"] is False
     assert private_content not in json.dumps(group)
+
+
+async def test_belief_history_default_keeps_private_story(db_pool):
+    """Legacy compat: no exclude_sensitive key keeps the old behavior —
+    fail-open on the default path, so a PRIVATE belief's full story (its
+    content, per the whole-story contract) still comes back unchanged."""
+    marker = get_test_identifier("sensitivity")
+    private_content = f"private belief legacy {marker}"
+    async with db_pool.acquire() as conn:
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            await _stub_get_embedding(conn)
+            mem_id = await _seed_memory(conn, private_content,
+                                        mem_type="worldview", sensitivity="private")
+
+            default = json.loads(await conn.fetchval(
+                "SELECT execute_memory_tool('belief_history', $1::jsonb)",
+                json.dumps({"memory_id": str(mem_id)}),
+            ))
+        finally:
+            await tr.rollback()
+
+    assert default["success"] is True
+    assert private_content in json.dumps(default)
