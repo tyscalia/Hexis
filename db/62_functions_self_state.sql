@@ -63,7 +63,10 @@ BEGIN
     LEFT JOIN memories m ON m.id::text = e.src_id
     WHERE e.dst_type = 'memory'
       AND e.dst_id = p_memory_id::text
-      AND e.rel_type IN ('SUPPORTS', 'CONTRADICTS');
+      AND e.rel_type IN ('SUPPORTS', 'CONTRADICTS')
+      AND (NOT COALESCE(p_exclude_sensitive, FALSE)
+           OR m.id IS NULL
+           OR COALESCE(m.source_attribution->>'sensitivity', '') <> 'private');
 
     RETURN jsonb_strip_nulls(jsonb_build_object(
         'memory', jsonb_build_object(
@@ -255,6 +258,8 @@ BEGIN
         JOIN subconscious_units s ON s.id = msu.subconscious_unit_id
         WHERE msu.memory_id = p_memory_id
           AND s.status = 'active'
+          AND (NOT COALESCE(p_exclude_sensitive, FALSE)
+               OR COALESCE(s.source_attribution->>'sensitivity', '') <> 'private')
         ORDER BY s.turn_at, s.created_at
         LIMIT GREATEST(COALESCE(p_max_units, 40), 1)
     ) u;
@@ -268,7 +273,9 @@ BEGIN
     ) ORDER BY g.created_at), '[]'::jsonb)
     INTO gisted_members
     FROM memories g
-    WHERE g.superseded_by = p_memory_id;
+    WHERE g.superseded_by = p_memory_id
+      AND (NOT COALESCE(p_exclude_sensitive, FALSE)
+           OR COALESCE(g.source_attribution->>'sensitivity', '') <> 'private');
 
     SELECT COALESCE(jsonb_agg(jsonb_build_object(
         'document_id', d.id,

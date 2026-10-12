@@ -388,6 +388,7 @@ class TestGroupContextGating:
             await _cleanup(db_pool, marker)
 
         assert result.success is True
+        assert f"public probe {marker}" in (result.output or "")
 
     async def test_belief_history_handler_gates_group_context(self, db_pool):
         from core.tools.memory import BeliefHistoryHandler
@@ -429,6 +430,7 @@ class TestGroupContextGating:
             await _cleanup(db_pool, marker)
 
         assert result.success is True
+        assert f"public belief {marker}" in (result.output or "")
 
 
 class TestSourceDocumentTools:

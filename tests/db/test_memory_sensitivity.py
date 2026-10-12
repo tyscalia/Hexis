@@ -480,3 +480,79 @@ async def test_belief_history_default_keeps_private_story(db_pool):
 
     assert default["success"] is True
     assert private_content in json.dumps(default)
+
+
+async def test_open_memory_excludes_private_linked_unit_in_group(db_pool):
+    """Related grain: a PUBLIC memory linked to a PRIVATE source unit must
+    not leak the unit's verbatim text when exclude_sensitive is set (the
+    siblings filter both grains; so must the drill-downs)."""
+    marker = get_test_identifier("sensitivity")
+    public_content = f"public gist {marker}"
+    private_unit = f"SECRET private unit turn {marker}"
+    async with db_pool.acquire() as conn:
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            await _stub_get_embedding(conn)
+            mem_id = await _seed_memory(conn, public_content)
+            unit_id = await _seed_unit(conn, private_unit, sensitivity="private")
+            await conn.execute(
+                "INSERT INTO memory_source_units (memory_id, subconscious_unit_id)"
+                " VALUES ($1, $2)",
+                mem_id, unit_id,
+            )
+
+            group = json.loads(await conn.fetchval(
+                "SELECT execute_memory_tool('open_memory', $1::jsonb)",
+                json.dumps({"memory_id": str(mem_id), "exclude_sensitive": True}),
+            ))
+            default = json.loads(await conn.fetchval(
+                "SELECT execute_memory_tool('open_memory', $1::jsonb)",
+                json.dumps({"memory_id": str(mem_id)}),
+            ))
+        finally:
+            await tr.rollback()
+
+    assert group["success"] is True          # the public memory itself opens
+    assert private_unit not in json.dumps(group)
+    assert default["success"] is True        # legacy path keeps the unit
+    assert private_unit in json.dumps(default)
+
+
+async def test_belief_history_excludes_private_evidence_in_group(db_pool):
+    """Related grain: a PUBLIC belief whose SUPPORTS evidence is a PRIVATE
+    memory must not leak that memory's excerpt when exclude_sensitive is set."""
+    marker = get_test_identifier("sensitivity")
+    public_belief = f"public belief {marker}"
+    private_evidence = f"SECRET private evidence memory {marker}"
+    async with db_pool.acquire() as conn:
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            await _stub_get_embedding(conn)
+            belief_id = await _seed_memory(conn, public_belief,
+                                           mem_type="worldview")
+            evid_id = await _seed_memory(conn, private_evidence,
+                                         sensitivity="private")
+            await conn.execute(
+                "INSERT INTO memory_edges (src_id, src_type, dst_id, dst_type,"
+                " rel_type, weight)"
+                " VALUES ($1, 'memory', $2, 'memory', 'SUPPORTS', 0.9)",
+                str(evid_id), str(belief_id),
+            )
+
+            group = json.loads(await conn.fetchval(
+                "SELECT execute_memory_tool('belief_history', $1::jsonb)",
+                json.dumps({"memory_id": str(belief_id), "exclude_sensitive": True}),
+            ))
+            default = json.loads(await conn.fetchval(
+                "SELECT execute_memory_tool('belief_history', $1::jsonb)",
+                json.dumps({"memory_id": str(belief_id)}),
+            ))
+        finally:
+            await tr.rollback()
+
+    assert group["success"] is True
+    assert private_evidence not in json.dumps(group)
+    assert default["success"] is True
+    assert private_evidence in json.dumps(default)
