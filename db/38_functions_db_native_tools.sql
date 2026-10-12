@@ -858,7 +858,7 @@ BEGIN
         IF target_id IS NULL THEN
             RETURN tool_error('memory_id must be a valid uuid', 'invalid_params');
         END IF;
-        revision := get_belief_history(target_id, COALESCE(NULLIF(p_args->>'limit', '')::int, 20));
+        revision := get_belief_history(target_id, COALESCE(NULLIF(p_args->>'limit', '')::int, 20), COALESCE(NULLIF(p_args->>'exclude_sensitive', '')::boolean, FALSE));
         IF revision->>'error' = 'not_found' THEN
             RETURN tool_error(format('memory not found: %s', target_id), 'invalid_params');
         END IF;
@@ -875,7 +875,7 @@ BEGIN
         IF target_id IS NULL THEN
             RETURN tool_error('memory_id must be a valid uuid', 'invalid_params');
         END IF;
-        revision := get_memory_story(target_id, COALESCE(NULLIF(p_args->>'max_units', '')::int, 40));
+        revision := get_memory_story(target_id, COALESCE(NULLIF(p_args->>'max_units', '')::int, 40), COALESCE(NULLIF(p_args->>'exclude_sensitive', '')::boolean, FALSE));
         IF revision->>'error' = 'not_found' THEN
             RETURN tool_error(format('memory not found: %s', target_id), 'invalid_params');
         END IF;

@@ -701,7 +701,12 @@ class BeliefHistoryHandler(ToolHandler):
         arguments: dict[str, Any],
         context: ToolExecutionContext,
     ) -> ToolResult:
-        db_result = await _try_db_memory_tool("belief_history", arguments, context)
+        args = dict(arguments)
+        if context.is_group:
+            # Group rooms recall without private memories (#92/#96) — the
+            # same wall hydrate already enforces, applied to the tool path.
+            args["exclude_sensitive"] = True
+        db_result = await _try_db_memory_tool("belief_history", args, context)
         if db_result is not None:
             return db_result
         return ToolResult.error_result(
@@ -753,7 +758,12 @@ class OpenMemoryHandler(ToolHandler):
         arguments: dict[str, Any],
         context: ToolExecutionContext,
     ) -> ToolResult:
-        db_result = await _try_db_memory_tool("open_memory", arguments, context)
+        args = dict(arguments)
+        if context.is_group:
+            # Group rooms recall without private memories (#92/#96) — the
+            # same wall hydrate already enforces, applied to the tool path.
+            args["exclude_sensitive"] = True
+        db_result = await _try_db_memory_tool("open_memory", args, context)
         if db_result is not None:
             return db_result
         return ToolResult.error_result(

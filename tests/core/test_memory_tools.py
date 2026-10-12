@@ -329,6 +329,84 @@ class TestBeliefHistoryTool:
         assert "why" in spec.description.lower()
 
 
+class TestGroupContextGating:
+    """#92 wall parity: the two drill-down handlers must set
+    exclude_sensitive when the turn is a group, like their four siblings."""
+
+    async def _seed_private(self, db_pool, marker, *, mem_type="semantic"):
+        async with db_pool.acquire() as conn:
+            await _cleanup(db_pool, marker)
+            attribution = {"kind": "conversation", "trust": 0.8,
+                           "sensitivity": "private"}
+            return await conn.fetchval(
+                """
+                INSERT INTO memories (type, content, importance, trust_level,
+                                      status, source_attribution)
+                VALUES ($1::memory_type, $2, 0.5, 0.8, 'active', $3::jsonb)
+                RETURNING id
+                """,
+                mem_type, f"private probe {marker}", json.dumps(attribution),
+            )
+
+    async def test_open_memory_handler_gates_group_context(self, db_pool):
+        from core.tools.memory import OpenMemoryHandler
+
+        marker = get_test_identifier("groupgate")
+        mem_id = await self._seed_private(db_pool, marker)
+        try:
+            group_result = await OpenMemoryHandler().execute(
+                {"memory_id": str(mem_id)}, _ctx(db_pool, is_group=True))
+            solo_result = await OpenMemoryHandler().execute(
+                {"memory_id": str(mem_id)}, _ctx(db_pool))
+        finally:
+            await _cleanup(db_pool, marker)
+
+        assert group_result.success is False
+        assert "memory not found" in (group_result.error or "")
+        assert solo_result.success is True
+
+    async def test_open_memory_group_still_opens_public(self, db_pool):
+        from core.tools.memory import OpenMemoryHandler
+
+        marker = get_test_identifier("groupgate")
+        async with db_pool.acquire() as conn:
+            await _cleanup(db_pool, marker)
+            mem_id = await conn.fetchval(
+                """
+                INSERT INTO memories (type, content, importance, trust_level,
+                                      status, source_attribution)
+                VALUES ('semantic', $1, 0.5, 0.8, 'active',
+                        '{"kind": "conversation", "trust": 0.8}'::jsonb)
+                RETURNING id
+                """,
+                f"public probe {marker}",
+            )
+        try:
+            result = await OpenMemoryHandler().execute(
+                {"memory_id": str(mem_id)}, _ctx(db_pool, is_group=True))
+        finally:
+            await _cleanup(db_pool, marker)
+
+        assert result.success is True
+
+    async def test_belief_history_handler_gates_group_context(self, db_pool):
+        from core.tools.memory import BeliefHistoryHandler
+
+        marker = get_test_identifier("groupgate")
+        mem_id = await self._seed_private(db_pool, marker, mem_type="worldview")
+        try:
+            group_result = await BeliefHistoryHandler().execute(
+                {"memory_id": str(mem_id)}, _ctx(db_pool, is_group=True))
+            solo_result = await BeliefHistoryHandler().execute(
+                {"memory_id": str(mem_id)}, _ctx(db_pool))
+        finally:
+            await _cleanup(db_pool, marker)
+
+        assert group_result.success is False
+        assert "memory not found" in (group_result.error or "")
+        assert solo_result.success is True
+
+
 class TestSourceDocumentTools:
     async def test_search_and_open_documents(self, db_pool):
         marker = get_test_identifier("sourcedoctool")

@@ -15,7 +15,8 @@ ON CONFLICT (key) DO NOTHING;
 -- contradicting sources (#43 — completes the self-explanation bar of #40).
 CREATE OR REPLACE FUNCTION get_belief_history(
     p_memory_id UUID,
-    p_limit INT DEFAULT 20
+    p_limit INT DEFAULT 20,
+    p_exclude_sensitive BOOLEAN DEFAULT FALSE
 ) RETURNS JSONB AS $$
 DECLARE
     mem memories%ROWTYPE;
@@ -25,6 +26,10 @@ DECLARE
 BEGIN
     SELECT * INTO mem FROM memories WHERE id = p_memory_id;
     IF NOT FOUND THEN
+        RETURN jsonb_build_object('error', 'not_found');
+    END IF;
+    IF COALESCE(p_exclude_sensitive, FALSE)
+       AND COALESCE(mem.source_attribution->>'sensitivity', '') = 'private' THEN
         RETURN jsonb_build_object('error', 'not_found');
     END IF;
 
@@ -214,7 +219,8 @@ $$ LANGUAGE plpgsql STABLE;
 -- open_memory gives the exact words. Mirrors get_belief_history's assembly.
 CREATE OR REPLACE FUNCTION get_memory_story(
     p_memory_id UUID,
-    p_max_units INT DEFAULT 40
+    p_max_units INT DEFAULT 40,
+    p_exclude_sensitive BOOLEAN DEFAULT FALSE
 ) RETURNS JSONB AS $$
 DECLARE
     mem RECORD;
@@ -229,6 +235,10 @@ BEGIN
     FROM memories WHERE id = p_memory_id;
 
     IF NOT FOUND THEN
+        RETURN jsonb_build_object('error', 'not_found');
+    END IF;
+    IF COALESCE(p_exclude_sensitive, FALSE)
+       AND COALESCE(mem.source_attribution->>'sensitivity', '') = 'private' THEN
         RETURN jsonb_build_object('error', 'not_found');
     END IF;
 

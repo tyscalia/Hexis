@@ -368,3 +368,88 @@ async def test_metamemory_ice_cream_phenomenology(db_pool):
             assert "ever knew" in never["display_output"]
         finally:
             await tr.rollback()
+
+
+async def test_open_memory_excludes_private_in_group_context(db_pool):
+    """#92 parity for open_memory: with exclude_sensitive set, a private
+    memory's drill-down refuses (not_found) instead of handing a group room
+    the verbatim source turns behind a private memory."""
+    marker = get_test_identifier("sensitivity")
+    private_content = f"private gist {marker}"
+    private_unit_text = f"verbatim private source turn {marker}"
+    async with db_pool.acquire() as conn:
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            await _stub_get_embedding(conn)
+            mem_id = await _seed_memory(conn, private_content, sensitivity="private")
+            unit_id = await _seed_unit(conn, private_unit_text, sensitivity="private")
+            await conn.execute(
+                "INSERT INTO memory_source_units (memory_id, subconscious_unit_id)"
+                " VALUES ($1, $2)",
+                mem_id, unit_id,
+            )
+
+            group = json.loads(await conn.fetchval(
+                "SELECT execute_memory_tool('open_memory', $1::jsonb)",
+                json.dumps({"memory_id": str(mem_id), "exclude_sensitive": True}),
+            ))
+        finally:
+            await tr.rollback()
+
+    assert group["success"] is False
+    assert private_unit_text not in json.dumps(group)
+
+
+async def test_open_memory_default_keeps_verbatim_grain(db_pool):
+    """Legacy compat: no exclude_sensitive key keeps the old behavior —
+    the verbatim source unit behind a (any) memory still opens."""
+    marker = get_test_identifier("sensitivity")
+    content = f"openable gist {marker}"
+    unit_text = f"verbatim openable source turn {marker}"
+    async with db_pool.acquire() as conn:
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            await _stub_get_embedding(conn)
+            mem_id = await _seed_memory(conn, content)
+            unit_id = await _seed_unit(conn, unit_text)
+            await conn.execute(
+                "INSERT INTO memory_source_units (memory_id, subconscious_unit_id)"
+                " VALUES ($1, $2)",
+                mem_id, unit_id,
+            )
+
+            default = json.loads(await conn.fetchval(
+                "SELECT execute_memory_tool('open_memory', $1::jsonb)",
+                json.dumps({"memory_id": str(mem_id)}),
+            ))
+        finally:
+            await tr.rollback()
+
+    assert default["success"] is True
+    assert unit_text in json.dumps(default)
+
+
+async def test_belief_history_excludes_private_in_group_context(db_pool):
+    """#92 parity for belief_history: with exclude_sensitive set, a private
+    memory's revision history refuses rather than leaking its content."""
+    marker = get_test_identifier("sensitivity")
+    private_content = f"private belief {marker}"
+    async with db_pool.acquire() as conn:
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            await _stub_get_embedding(conn)
+            mem_id = await _seed_memory(conn, private_content,
+                                        mem_type="worldview", sensitivity="private")
+
+            group = json.loads(await conn.fetchval(
+                "SELECT execute_memory_tool('belief_history', $1::jsonb)",
+                json.dumps({"memory_id": str(mem_id), "exclude_sensitive": True}),
+            ))
+        finally:
+            await tr.rollback()
+
+    assert group["success"] is False
+    assert private_content not in json.dumps(group)
